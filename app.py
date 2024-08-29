@@ -1,23 +1,109 @@
 import streamlit as st
 import os
-from langchain_openai import ChatOpenAI
+import tempfile
+import hashlib
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, CSVLoader, Docx2txtLoader, UnstructuredExcelLoader
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
-from tempfile import NamedTemporaryFile
-from langchain.schema import Document
+from langchain.prompts import PromptTemplate
+from langchain.memory import ConversationBufferMemory
 
-# Available models
+# Ensure these are defined earlier in your code
 MODELS = {
     "GPT-4o-Mini": "gpt-4o-mini",
     "GPT-4o": "gpt-4o",
     "GPT-4o-2024-08-06": "gpt-4o-2024-08-06"
 }
 
+# Define the system prompt
+SYSTEM_PROMPT = """You are a helpful AI assistant. Your responses should be informative, 
+friendly, and tailored to the user's questions. If you're unsure about something, 
+it's okay to say so. When discussing document content, be specific and cite relevant parts. use emojis to make the conversation more engaging and fun."""
+
+# Initialize session state variables
+if 'file_uploaded' not in st.session_state:
+    st.session_state['file_uploaded'] = False
+if 'file_hash' not in st.session_state:
+    st.session_state['file_hash'] = None
+if 'embeddings_store' not in st.session_state:
+    st.session_state['embeddings_store'] = {}
+if 'messages' not in st.session_state:
+    st.session_state['messages'] = []
+
+def get_file_hash(file_content):
+    return hashlib.md5(file_content).hexdigest()
+
+def process_file(file_content, file_name, api_key, selected_model):
+    try:
+        file_hash = get_file_hash(file_content)
+
+        # Check if we already have embeddings for this file
+        if file_hash in st.session_state['embeddings_store']:
+            st.sidebar.info("Using existing embeddings for this file.")
+            return st.session_state['embeddings_store'][file_hash]['chain']
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            temp_file.write(file_content)
+            temp_file_path = temp_file.name
+
+        if file_extension == '.pdf':
+            loader = PyPDFLoader(temp_file_path)
+        elif file_extension == '.txt':
+            loader = TextLoader(temp_file_path)
+        elif file_extension == '.csv':
+            loader = CSVLoader(temp_file_path)
+        elif file_extension in ['.docx', '.doc']:
+            loader = Docx2txtLoader(temp_file_path)
+        elif file_extension in ['.xlsx', '.xls']:
+            loader = UnstructuredExcelLoader(temp_file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+
+        documents = loader.load()
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+        texts = text_splitter.split_documents(documents)
+        
+        embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+        vectorstore = FAISS.from_documents(texts, embeddings)
+        
+        chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
+        
+        # Create a prompt template
+        prompt_template = PromptTemplate(
+            input_variables=["chat_history", "question", "context"],
+            template=f"{SYSTEM_PROMPT}\n\nChat History: {{chat_history}}\nHuman: {{question}}\nContext: {{context}}\nAI: "
+        )
+        
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        
+        chain = ConversationalRetrievalChain.from_llm(
+            llm=chat,
+            retriever=vectorstore.as_retriever(),
+            memory=memory,
+            combine_docs_chain_kwargs={"prompt": prompt_template}
+        )
+
+        # Store the embeddings and chain
+        st.session_state['embeddings_store'][file_hash] = {
+            'vectorstore': vectorstore,
+            'chain': chain
+        }
+
+        return chain
+    except Exception as e:
+        raise Exception(f"An error occurred while processing the file: {str(e)}")
+    finally:
+        # Clean up the temporary file
+        if 'temp_file_path' in locals():
+            os.unlink(temp_file_path)
+
 # Streamlit app
-st.title("☕️ Chat with your document ")
+st.title("☕️ Chat with AI (and optionally your document)")
 
 # Sidebar for configurations
 st.sidebar.header("Configuration")
@@ -28,111 +114,66 @@ api_key = st.sidebar.text_input("Enter your OpenAI API Key", type="password")
 # Model selection
 selected_model = st.sidebar.selectbox("Select AI Model", list(MODELS.keys()))
 
+# File uploader in the sidebar
+uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt", "csv", "docx", "doc", "xlsx", "xls"])
+
+# Process uploaded file
+if uploaded_file is not None:
+    file_content = uploaded_file.read()
+    file_hash = get_file_hash(file_content)
+    
+    if file_hash != st.session_state['file_hash']:
+        try:
+            st.session_state['chain'] = process_file(file_content, uploaded_file.name, api_key, selected_model)
+            st.session_state['file_uploaded'] = True
+            st.session_state['file_hash'] = file_hash
+            st.sidebar.success(f"{uploaded_file.name} uploaded and processed successfully!")
+        except Exception as e:
+            st.sidebar.error(str(e))
+    else:
+        st.sidebar.info("This file has already been processed.")
+        st.session_state['chain'] = st.session_state['embeddings_store'][file_hash]['chain']
+
 # Clear chat button
 if st.sidebar.button("Clear Chat"):
-    st.session_state.messages = []
-    st.session_state.chain = None
+    st.session_state['messages'] = []
+    st.session_state['chain'] = None
+    st.session_state['file_uploaded'] = False
+    st.session_state['file_hash'] = None
     st.rerun()
 
-# Initialize ChatOpenAI and embeddings
-@st.cache_resource(show_spinner=False)
-def get_openai_model(api_key, model_name):
-    return ChatOpenAI(temperature=0, model_name=model_name, openai_api_key=api_key)
-
-@st.cache_resource(show_spinner=False)
-def get_embeddings(api_key):
-    return OpenAIEmbeddings(openai_api_key=api_key)
-
-# Function to get file type and loader
-def get_file_loader(file):
-    file_extension = os.path.splitext(file.name)[1].lower()
-    if file_extension == '.pdf':
-        return PyPDFLoader
-    elif file_extension == '.txt':
-        return TextLoader
-    elif file_extension == '.csv':
-        return CSVLoader
-    elif file_extension in ['.docx', '.doc']:
-        return Docx2txtLoader
-    elif file_extension in ['.xlsx', '.xls']:
-        return UnstructuredExcelLoader
-    else:
-        raise ValueError(f"Unsupported file type: {file_extension}")
-
-# Main app logic
+# Main chat interface
 if api_key:
-    chat = get_openai_model(api_key, MODELS[selected_model])
-    embeddings = get_embeddings(api_key)
-
-    # File uploader
-    uploaded_file = st.file_uploader("Choose a file", type=["pdf", "txt", "csv", "docx", "doc", "xlsx", "xls"])
-
-    # Initialize session state
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "chain" not in st.session_state:
-        st.session_state.chain = None
-
-    # Create chain from uploaded file
-    if uploaded_file is not None:
-        try:
-            with NamedTemporaryFile(delete=False, suffix=f'.{uploaded_file.name.split(".")[-1]}') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_file_path = tmp_file.name
-
-            # Get appropriate loader
-            loader_class = get_file_loader(uploaded_file)
-            loader = loader_class(tmp_file_path)
-            documents = loader.load()
-
-            if not documents:
-                raise ValueError("No content could be extracted from the file.")
-
-            text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-            texts = text_splitter.split_documents(documents)
-
-            if not texts:
-                raise ValueError("No text could be extracted from the document.")
-
-            # Create vector store and chain
-            db = FAISS.from_documents(texts, embeddings)
-            st.session_state.chain = ConversationalRetrievalChain.from_llm(
-                llm=chat, 
-                retriever=db.as_retriever(),
-                return_source_documents=True
-            )
-
-            os.unlink(tmp_file_path)  # Remove temporary file
-
-            st.success(f"{uploaded_file.name} uploaded and processed successfully!")
-        except Exception as e:
-            st.error(f"An error occurred while processing the file: {str(e)}")
-            st.session_state.chain = None
-
     # Display chat messages
-    for message in st.session_state.messages:
+    for message in st.session_state['messages']:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
     # User input
-    if prompt := st.chat_input("Ask about your document"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    if prompt := st.chat_input("Ask a question about the document or chat with AI"):
+        st.session_state['messages'].append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         # Generate response
-        if st.session_state.chain:
+        with st.chat_message("assistant"):
             try:
-                with st.chat_message("assistant"):
-                    response = st.session_state.chain({"question": prompt, "chat_history": []})
-                    st.markdown(response['answer'])
-                    st.session_state.messages.append({"role": "assistant", "content": response['answer']})
+                if st.session_state['chain']:
+                    response = st.session_state['chain']({"question": prompt})
+                    answer = response['answer']
+                else:
+                    chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
+                    messages = [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ]
+                    answer = chat.invoke(messages).content
+                
+                st.markdown(answer)
+                st.session_state['messages'].append({"role": "assistant", "content": answer})
             except Exception as e:
                 st.error(f"An error occurred while generating the response: {str(e)}")
-        else:
-            st.warning("Please upload a document first.")
 
-    if not uploaded_file:
-        st.info("Please upload a document to start chatting.")
+    st.info("You can start chatting now. If you want to chat about a specific document, upload it using the file uploader in the sidebar.")
 else:
     st.warning("Please enter your OpenAI API key in the sidebar to start using the app.")
