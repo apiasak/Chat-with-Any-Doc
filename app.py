@@ -157,22 +157,24 @@ if api_key:
 
         # Generate response
         with st.chat_message("assistant"):
-            try:
-                if st.session_state['chain']:
-                    response = st.session_state['chain']({"question": prompt})
-                    answer = response['answer']
-                else:
-                    chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
-                    messages = [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ]
-                    answer = chat.invoke(messages).content
-                
-                st.markdown(answer)
-                st.session_state['messages'].append({"role": "assistant", "content": answer})
-            except Exception as e:
-                st.error(f"An error occurred while generating the response: {str(e)}")
+            message_placeholder = st.empty()
+            with st.spinner("🤔 AI is thinking..."):
+                try:
+                    if st.session_state['chain']:
+                        response = st.session_state['chain']({"question": prompt})
+                        answer = response['answer']
+                    else:
+                        chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
+                        messages = [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt}
+                        ]
+                        answer = chat.invoke(messages).content
+                    
+                    message_placeholder.markdown(answer)
+                    st.session_state['messages'].append({"role": "assistant", "content": answer})
+                except Exception as e:
+                    message_placeholder.error(f"An error occurred while generating the response: {str(e)}")
 
     st.info("You can start chatting now. If you want to chat about a specific document, upload it using the file uploader in the sidebar.")
 else:

@@ -3,11 +3,11 @@
 This Streamlit application allows users to chat with AI and optionally upload documents to chat about their content using OpenAI's language models.
 
 ## Screenshot
-![Screenshot](Screenshot.jpeg)
+![Screenshot](src/ChatwithAnyDocs.gif)
 
 
 ## Flow chart
-![Flow](Flow.png)
+![Flow](src/Flow.png)
 
 ## Features
 
