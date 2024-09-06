@@ -1,4 +1,4 @@
-# ☕️ Chat with AI (and optionally your document)
+# ☕️ Chat with Any Doc
 
 This Streamlit application allows users to chat with AI and optionally upload documents to chat about their content using OpenAI's language models.
 
@@ -18,12 +18,13 @@ This Streamlit application allows users to chat with AI and optionally upload do
 - Document processing with LangChain
 - Vector storage using FAISS for efficient retrieval
 - Customizable system prompt for AI behavior
+- Allow user to bring their own OpenAI API Key
 
 ## Prerequisites
 
 Before you begin, ensure you have met the following requirements:
 
-- Python 3.7+
+- Python 3.11+
 - An OpenAI API key
 
 ## Installation
