@@ -10,6 +10,8 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 
+st.set_page_config(page_title="Chat with Any Doc", page_icon="☕", layout="wide")
+
 # Ensure these are defined earlier in your code
 MODELS = {
     "GPT-4o-Mini": "gpt-4o-mini",
@@ -102,20 +104,30 @@ def process_file(file_content, file_name, api_key, selected_model):
         if 'temp_file_path' in locals():
             os.unlink(temp_file_path)
 
+def clear_chat():
+    """Reset all chat-related session state."""
+    st.session_state['messages'] = []
+    st.session_state['chain'] = None
+    st.session_state['file_uploaded'] = False
+    st.session_state['file_hash'] = None
+    st.toast("Chat cleared", icon="🧹")
+    st.rerun()
+
 # Streamlit app
 st.title("☕️ Chat with AI (and optionally your document)")
 
 # Sidebar for configurations
-st.sidebar.header("Configuration")
-
-# API Key input
-api_key = st.sidebar.text_input("Enter your OpenAI API Key", type="password")
-
-# Model selection
-selected_model = st.sidebar.selectbox("Select AI Model", list(MODELS.keys()))
-
-# File uploader in the sidebar
-uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt", "csv", "docx", "doc", "xlsx", "xls"])
+with st.sidebar.expander("Configuration", expanded=True):
+    api_key = st.text_input(
+        "Enter your OpenAI API Key",
+        type="password",
+        value=os.getenv("OPENAI_API_KEY", ""),
+    )
+    selected_model = st.selectbox("Select AI Model", list(MODELS.keys()))
+    uploaded_file = st.file_uploader(
+        "Upload a document",
+        type=["pdf", "txt", "csv", "docx", "doc", "xlsx", "xls"],
+    )
 
 # Process uploaded file
 if uploaded_file is not None:
@@ -127,7 +139,7 @@ if uploaded_file is not None:
             st.session_state['chain'] = process_file(file_content, uploaded_file.name, api_key, selected_model)
             st.session_state['file_uploaded'] = True
             st.session_state['file_hash'] = file_hash
-            st.sidebar.success(f"{uploaded_file.name} uploaded and processed successfully!")
+            st.toast(f"{uploaded_file.name} processed!", icon="📄")
         except Exception as e:
             st.sidebar.error(str(e))
     else:
@@ -135,12 +147,7 @@ if uploaded_file is not None:
         st.session_state['chain'] = st.session_state['embeddings_store'][file_hash]['chain']
 
 # Clear chat button
-if st.sidebar.button("Clear Chat"):
-    st.session_state['messages'] = []
-    st.session_state['chain'] = None
-    st.session_state['file_uploaded'] = False
-    st.session_state['file_hash'] = None
-    st.rerun()
+st.sidebar.button("Clear Chat", on_click=clear_chat)
 
 # Main chat interface
 if api_key:
