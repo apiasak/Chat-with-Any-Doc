@@ -19,10 +19,13 @@ MODELS = {
     "GPT-4o-2024-08-06": "gpt-4o-2024-08-06"
 }
 
-# Define the system prompt
-SYSTEM_PROMPT = """You are a helpful AI assistant. Your responses should be informative, 
-friendly, and tailored to the user's questions. If you're unsure about something, 
+# Default system prompt
+DEFAULT_SYSTEM_PROMPT = """You are a helpful AI assistant. Your responses should be informative,
+friendly, and tailored to the user's questions. If you're unsure about something,
 it's okay to say so. When discussing document content, be specific and cite relevant parts. use emojis to make the conversation more engaging and fun."""
+
+if 'system_prompt' not in st.session_state:
+    st.session_state['system_prompt'] = DEFAULT_SYSTEM_PROMPT
 
 # Initialize session state variables
 if 'file_uploaded' not in st.session_state:
@@ -75,10 +78,10 @@ def process_file(file_content, file_name, api_key, selected_model):
         
         chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
         
-        # Create a prompt template
+        system_prompt = st.session_state['system_prompt']
         prompt_template = PromptTemplate(
             input_variables=["chat_history", "question", "context"],
-            template=f"{SYSTEM_PROMPT}\n\nChat History: {{chat_history}}\nHuman: {{question}}\nContext: {{context}}\nAI: "
+            template=f"{system_prompt}\n\nChat History: {{chat_history}}\nHuman: {{question}}\nContext: {{context}}\nAI: "
         )
         
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
@@ -123,6 +126,11 @@ with st.sidebar.expander("Configuration", expanded=True):
         type="password",
         value=os.getenv("OPENAI_API_KEY", ""),
     )
+    st.session_state['system_prompt'] = st.text_area(
+        "System Prompt",
+        value=st.session_state.get('system_prompt', DEFAULT_SYSTEM_PROMPT),
+        height=150,
+    )
     selected_model = st.selectbox("Select AI Model", list(MODELS.keys()))
     uploaded_file = st.file_uploader(
         "Upload a document",
@@ -149,6 +157,26 @@ if uploaded_file is not None:
 # Clear chat button
 st.sidebar.button("Clear Chat", on_click=clear_chat)
 
+if st.session_state.get('file_uploaded'):
+    if st.sidebar.button("Summarize Document"):
+        with st.spinner("Summarizing document..."):
+            try:
+                summary = st.session_state['chain']({"question": "Summarize the document briefly."})['answer']
+                st.session_state['messages'].append({"role": "assistant", "content": summary})
+                st.chat_message("assistant").markdown(summary)
+            except Exception as e:
+                st.sidebar.error(f"Summary failed: {str(e)}")
+
+chat_history = "\n".join([
+    f"{m['role'].capitalize()}: {m['content']}" for m in st.session_state['messages']
+])
+st.sidebar.download_button(
+    "Download Chat History",
+    chat_history,
+    file_name="chat_history.txt",
+    mime="text/plain",
+)
+
 # Main chat interface
 if api_key:
     # Display chat messages
@@ -173,7 +201,7 @@ if api_key:
                     else:
                         chat = ChatOpenAI(temperature=0, model_name=MODELS[selected_model], openai_api_key=api_key)
                         messages = [
-                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "system", "content": st.session_state['system_prompt']},
                             {"role": "user", "content": prompt}
                         ]
                         answer = chat.invoke(messages).content
