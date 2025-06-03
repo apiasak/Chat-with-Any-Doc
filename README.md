@@ -20,6 +20,9 @@ This Streamlit application allows users to chat with AI and optionally upload do
 - Customizable system prompt for AI behavior
 - Allow user to bring their own OpenAI API Key
 - Built with Streamlit 1.45+ using chat widgets and toast notifications
+- Summarize uploaded documents with a single click
+- Customize the system prompt from the sidebar
+- Download your chat history as a text file
 
 ## Prerequisites
 
