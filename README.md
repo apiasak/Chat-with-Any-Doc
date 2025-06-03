@@ -19,6 +19,7 @@ This Streamlit application allows users to chat with AI and optionally upload do
 - Vector storage using FAISS for efficient retrieval
 - Customizable system prompt for AI behavior
 - Allow user to bring their own OpenAI API Key
+- Built with Streamlit 1.45+ using chat widgets and toast notifications
 
 ## Prerequisites
 
@@ -53,6 +54,8 @@ Before you begin, ensure you have met the following requirements:
 
 4. Select an AI model from the dropdown in the sidebar.
 
+You can also set the `OPENAI_API_KEY` environment variable to prefill the key input.
+
 5. (Optional) Upload a document (PDF, TXT, CSV, DOCX, or XLSX).
 
 6. Start chatting with AI or ask questions about your uploaded document!
@@ -69,7 +72,11 @@ You can select different OpenAI models from the dropdown in the sidebar. Availab
 
 ## Customization
 
-The AI assistant's behavior is guided by a system prompt, which can be customized in the `app.py` file. The current system prompt is:
+The AI assistant's behavior is guided by a system prompt, which can be customized in the `app.py` file. The default prompt is:
+
+```
+You are a helpful AI assistant. Your responses should be informative, friendly, and tailored to the user's questions. If you're unsure about something, it's okay to say so. When discussing document content, be specific and cite relevant parts. use emojis to make the conversation more engaging and fun.
+```
 
 ## Contributing
 
